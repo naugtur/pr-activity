@@ -4,9 +4,10 @@
   "description": "CLI tool to show recent GitHub PR activity for a user",
   "main": "cli.js",
   "bin": "./cli.js",
+  "type": "module",
   "scripts": {
     "test": ". ./.env && node cli.js naugtur"
   },
   "keywords": ["github", "pr", "reviews", "activity", "cli"],
-  "license": "MIT"
+  "license": "Apache 2.0"
 }

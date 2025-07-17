@@ -1,140 +1,84 @@
 #!/usr/bin/env node
 
-async function searchPRs(query, token) {
-  const response = await fetch(`https://api.github.com/search/issues?q=${encodeURIComponent(query)}&per_page=100`, {
-    headers: {
-      'Authorization': `Bearer ${token}`, // Changed from 'token' to 'Bearer'
-      'Accept': 'application/vnd.github.v3+json',
-      'User-Agent': 'github-pr-reviews-cli'
+async function getUserRecentActivity(username, token, daysBack = 7) {
+  const response = await fetch(
+    `https://api.github.com/users/${username}/events?per_page=100`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github.v3+json",
+        "User-Agent": "github-pr-reviews-cli",
+      },
     }
-  });
-  
-  if (!response.ok) {
-    const errorBody = await response.text();
-    console.error('API Response:', errorBody);
-    throw new Error(`GitHub API error: ${response.status} ${response.statusText}`);
-  }
-  
-  const data = await response.json();
-  return data.items;
-}
-
-async function getReviewDetails(owner, repo, number, token) {
-  const headers = { 
-    'Authorization': `Bearer ${token}`, 
-    'Accept': 'application/vnd.github.v3+json',
-    'User-Agent': 'github-pr-reviews-cli'
-  };
-
-  const [reviews, prComments] = await Promise.all([
-    fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${number}/reviews`, { headers })
-      .then(r => r.ok ? r.json() : []),
-    
-    fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${number}/comments`, { headers })
-      .then(r => r.ok ? r.json() : [])
-  ]);
-
-  return { reviews, comments: prComments };
-}
-
-async function getAllUserPRInteractions(username, daysBack = 7) {
-  const token = process.env.GITHUB_TOKEN;
-  if (!token) {
-    throw new Error('GITHUB_TOKEN environment variable is required');
-  }
-
-  const since = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000)
-    .toISOString().split('T')[0];
-  
-  // Simplified queries - the issue might be with complex query syntax
-  const queries = [
-    `type:pr commenter:${username} updated:>=${since}`,
-    `type:pr reviewed-by:${username} updated:>=${since}`
-  ];
-
-  console.log('Search queries:', queries); // Debug output
-
-  const [commentedPRs, reviewedPRs] = await Promise.all([
-    searchPRs(queries[0], token),
-    searchPRs(queries[1], token)
-  ]);
-
-  const allPRs = [...commentedPRs, ...reviewedPRs];
-  const uniquePRs = allPRs.filter((pr, index, self) => 
-    index === self.findIndex(p => p.number === pr.number && p.repository_url === pr.repository_url)
   );
 
-  const activities = [];
-
-  for (const pr of uniquePRs) {
-    const urlParts = pr.repository_url.split('/');
-    const owner = urlParts[urlParts.length - 2];
-    const repo = urlParts[urlParts.length - 1];
-
-    try {
-      const { reviews, comments } = await getReviewDetails(owner, repo, pr.number, token);
-      
-      reviews
-        .filter(review => review.user.login === username)
-        .forEach(review => {
-          activities.push({
-            title: pr.title,
-            url: pr.html_url,
-            type: 'review',
-            action: review.state,
-            created_at: review.submitted_at
-          });
-        });
-
-      comments
-        .filter(comment => comment.user.login === username)
-        .forEach(comment => {
-          activities.push({
-            title: pr.title,
-            url: pr.html_url,
-            type: 'comment',
-            action: 'COMMENTED',
-            created_at: comment.created_at
-          });
-        });
-    } catch (error) {
-      console.error(`Error fetching details for PR ${pr.number}: ${error.message}`);
-    }
+  if (!response.ok) {
+    const errorBody = await response.text();
+    console.error("API Response:", errorBody);
+    throw new Error(
+      `GitHub API error: ${response.status} ${response.statusText}`
+    );
   }
 
-  return activities;
+  const events = await response.json();
+  const cutoffDate = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000);
+
+  return events
+    .filter((event) => new Date(event.created_at) > cutoffDate)
+    .filter(
+      (event) =>
+        event.type === "PullRequestReviewEvent" ||
+        event.type === "PullRequestReviewCommentEvent" ||
+        (event.type === "IssueCommentEvent" &&
+          event.payload.issue?.pull_request)
+    )
+    .map((event) => {
+      const isReview = event.type === "PullRequestReviewEvent";
+      const isPRComment =
+        event.type === "PullRequestReviewCommentEvent" ||
+        (event.type === "IssueCommentEvent" &&
+          event.payload.issue?.pull_request);
+
+      return {
+        title: event.payload.pull_request?.title || event.payload.issue?.title,
+        url:
+          event.payload.pull_request?.html_url || event.payload.issue?.html_url,
+        action: isReview ? event.payload.review?.state : "COMMENTED",
+        created_at: event.created_at,
+        type: event.type,
+      };
+    })
+    .filter((activity) => activity.title && activity.url);
 }
 
 function groupByDay(activities) {
   const grouped = {};
-  
-  activities.forEach(activity => {
-    const day = activity.created_at.split('T')[0];
+
+  activities.forEach((activity) => {
+    const day = activity.created_at.split("T")[0];
     if (!grouped[day]) grouped[day] = [];
-    
-    // Check if we already have this PR for this day
-    const existingIndex = grouped[day].findIndex(existing => existing.url === activity.url);
-    
+
+    const existingIndex = grouped[day].findIndex(
+      (existing) => existing.url === activity.url
+    );
+
     if (existingIndex === -1) {
-      // New PR for this day, add it
       grouped[day].push(activity);
     } else {
-      // PR already exists for this day, keep the "higher priority" action
       const existing = grouped[day][existingIndex];
-      const priority = { 'APPROVED': 3, 'CHANGES_REQUESTED': 2, 'COMMENTED': 1 };
-      
+      const priority = { APPROVED: 3, CHANGES_REQUESTED: 2, COMMENTED: 1 };
+
       if (priority[activity.action] > priority[existing.action]) {
         grouped[day][existingIndex] = activity;
       }
     }
   });
-  
+
   return grouped;
 }
-
 function formatReviewsForTerminal(reviewsData, username) {
   function getEmoji(action) {
-    switch (action.toUpperCase()) {
+    switch (action?.toUpperCase()) {
       case "APPROVED":
         return "✅";
       case "CHANGES_REQUESTED":
@@ -147,18 +91,20 @@ function formatReviewsForTerminal(reviewsData, username) {
   }
 
   function formatDate(dateStr) {
-    return new Date(dateStr).toLocaleDateString("en-US", {
-      weekday: "short",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
+    const date = new Date(dateStr);
+    const weekday = date.toLocaleDateString("en-US", { weekday: "short" });
+    const isoDate = date.toISOString().split("T")[0];
+    return `${weekday} ${isoDate}`;
   }
 
-  function truncateTitle(title, maxLength = 20) {
-    return title.length > maxLength
-      ? title.substring(0, maxLength) + "..."
-      : title;
+  function padTitle(title, maxLength = 60) {
+    if (!title) return " ".repeat(maxLength);
+
+    if (title.length > maxLength) {
+      return title.substring(0, maxLength);
+    } else {
+      return title + " ".repeat(maxLength - title.length);
+    }
   }
 
   const sortedDates = Object.keys(reviewsData).sort(
@@ -169,7 +115,7 @@ function formatReviewsForTerminal(reviewsData, username) {
     .flatMap((date) =>
       reviewsData[date].map(
         (activity) =>
-          `[ ${formatDate(date)} ] ${getEmoji(activity.action)} ${truncateTitle(
+          `[ ${formatDate(date)} ] ${getEmoji(activity.action)} ${padTitle(
             activity.title
           )} ${activity.url}`
       )
@@ -179,23 +125,42 @@ function formatReviewsForTerminal(reviewsData, username) {
 
 async function main() {
   const username = process.argv[2];
+  const daysArg = process.argv[3];
 
   if (!username) {
-    console.error("Usage: node cli.js <github-username>");
+    console.error("Usage: node cli.js <github-username> [days]");
+    console.error("  days: number of days to look back (default: 7)");
     console.error("Make sure to set GITHUB_TOKEN environment variable");
     process.exit(1);
   }
 
+  // Parse and validate days argument
+  let days = 7; // default
+  if (daysArg) {
+    const parsedDays = parseInt(daysArg, 10);
+    if (isNaN(parsedDays) || parsedDays < 1 || parsedDays > 90) {
+      console.error("Error: days must be a number between 1 and 90");
+      process.exit(1);
+    }
+    days = parsedDays;
+  }
+
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) {
+    console.error("GITHUB_TOKEN environment variable is required");
+    process.exit(1);
+  }
+
   try {
-    console.log(`Fetching PR reviews for @${username}...`);
-    const activities = await getAllUserPRInteractions(username);
+    console.log(`Fetching PR reviews for @${username} (last ${days} days)...`);
+    const activities = await getUserRecentActivity(username, token, days);
     const groupedByDay = groupByDay(activities);
 
     if (Object.keys(groupedByDay).length === 0) {
       console.log(
-        `No PR reviews or comments found for @${username} in the last 7 days.`
+        `No PR reviews or comments found for @${username} in the last ${days} days.`
       );
-      process.exit(0);
+      return;
     }
 
     const output = formatReviewsForTerminal(groupedByDay, username);
@@ -206,6 +171,6 @@ async function main() {
   }
 }
 
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   main();
 }
