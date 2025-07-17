@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-check
 
 async function getUserRecentActivity(username, token, daysBack = 7) {
   const response = await fetch(
@@ -34,10 +35,6 @@ async function getUserRecentActivity(username, token, daysBack = 7) {
     )
     .map((event) => {
       const isReview = event.type === "PullRequestReviewEvent";
-      const isPRComment =
-        event.type === "PullRequestReviewCommentEvent" ||
-        (event.type === "IssueCommentEvent" &&
-          event.payload.issue?.pull_request);
 
       return {
         title: event.payload.pull_request?.title || event.payload.issue?.title,
@@ -128,7 +125,7 @@ async function main() {
   const daysArg = process.argv[3];
 
   if (!username) {
-    console.error("Usage: node cli.js <github-username> [days]");
+    console.error("Usage: pr-activity <github-username> [days]");
     console.error("  days: number of days to look back (default: 7)");
     console.error("Make sure to set GITHUB_TOKEN environment variable");
     process.exit(1);

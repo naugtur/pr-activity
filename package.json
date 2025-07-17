@@ -1,13 +1,33 @@
 {
-  "name": "pr-activity",
-  "version": "1.0.0",
-  "description": "CLI tool to show recent GitHub PR activity for a user",
-  "main": "cli.js",
-  "bin": "./cli.js",
-  "type": "module",
-  "scripts": {
-    "test": ". ./.env && node cli.js naugtur"
-  },
-  "keywords": ["github", "pr", "reviews", "activity", "cli"],
-  "license": "Apache 2.0"
+    "name": "pr-activity",
+    "version": "1.0.0",
+    "description": "CLI tool to show recent GitHub PR activity for a user",
+    "main": "cli.js",
+    "bin": {
+        "pr-activity": "cli.js"
+    },
+    "type": "module",
+    "scripts": {
+        "test": ". ./.env && node cli.js naugtur"
+    },
+    "keywords": [
+        "github",
+        "pr",
+        "reviews",
+        "activity",
+        "cli"
+    ],
+    "files": [
+        "cli.js"
+    ],
+    "license": "Apache-2.0",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/naugtur/pr-activity.git"
+    },
+    "author": "naugtur",
+    "bugs": {
+        "url": "https://github.com/naugtur/pr-activity/issues"
+    },
+    "homepage": "https://github.com/naugtur/pr-activity#readme"
 }
