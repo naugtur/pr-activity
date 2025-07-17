@@ -1,0 +1,12 @@
+{
+  "name": "pr-activity",
+  "version": "1.0.0",
+  "description": "CLI tool to show recent GitHub PR activity for a user",
+  "main": "cli.js",
+  "bin": "./cli.js",
+  "scripts": {
+    "test": ". ./.env && node cli.js naugtur"
+  },
+  "keywords": ["github", "pr", "reviews", "activity", "cli"],
+  "license": "MIT"
+}
